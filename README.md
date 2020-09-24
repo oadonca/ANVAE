@@ -1,5 +1,5 @@
 # ANVAE
-Aversarial Nouveau Variational Autoencoder
+Adversarial Nouveau Variational Autoencoder
 
 Unofficial combination of NVAE and AAE:
 NVAE: https://arxiv.org/abs/2007.03898
