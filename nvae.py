@@ -8,9 +8,9 @@ Created on Tue Sep 15 09:06:45 2020
 import tensorflow as tf
 import modules
 
-INIT_W = tf.contrib.layers.variance_scaling_initializer()
+INIT_W = tf.keras.initializers.VarianceScaling()
 
-class NVAEGAN():
+class NVAE():
     def __init__(self, im_size=[64, 64], n_channel=1, n_class=None,
                  use_label=False, use_supervise=False, add_noise=False, wd=0,
                  enc_weight=1., gen_weight=1., dis_weight=1.,
@@ -44,7 +44,7 @@ class NVAEGAN():
         self._cat_gen_w = cat_gen_weight
         self._cls_w = cls_weight
         self.layers = {}
-        self.is_training
+        self.is_training = True
         
     def create_train_input(self):
         self.image = tf.placeholder(
@@ -123,3 +123,6 @@ class NVAEGAN():
             z = modules.tf_sample_diag_guassian(z_mean, z_std, b_size, self._n_code)
             return z, z_mean, z_std, z_log_std
         
+    def get_latent_space(self):
+        z = self.layers['z']
+        return z

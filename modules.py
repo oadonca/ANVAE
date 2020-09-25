@@ -9,8 +9,6 @@ import math
 import numpy as np
 import tensorflow as tf
 import tensorflow_probability as tfp
-from tflearn.layers.conv import global_avg_pool
-from tensorflow.contrib.framework import add_arg_scope
 
 def batchNorm(layer_dict, name="batch_norm"):
     batch_mean, batch_var = tf.nn.moments(x=layer_dict['cur_input'])
@@ -22,7 +20,7 @@ def swish(layer_dict, name="swish"):
     return layer_dict['cur_input']
 
 def Global_Average_Pooling(x):
-    return global_avg_pool(x, name="Global_avg_pooling")
+    return tf.keras.layers.GlobalAveragePooling2D(x)
 
 def Fully_connected(x, units, name='fully_connected') :
     with tf.name_scope(name) :
@@ -92,22 +90,16 @@ def encoder_cell(inputs, is_training, dim, wd=0, bn=False, name='encoder_cell', 
         layer_dict = {}
         layer_dict['cur_input'] = inputs
         with tf.variable_scope(name):
-            arg_scope = tf.contrib.framework.arg_scope
-            with arg_scope([conv],
-                            layer_dict=layer_dict, bn=bn, nl=tf.nn.relu,
-                            init_w=init_w, padding='SAME', pad_type='ZERO',
-                            is_training=is_training, wd=0):
-                batchNorm(layer_dict)
-                swish(layer_dict)
-                conv(filter_size=3, out_dim=dim, name='conv1', add_summary=False)
-                batchNorm(layer_dict)
-                swish(layer_dict)
-                conv(filter_size=3, out_dim=dim, name='conv2', add_summary=False)
-                SE(layer_dict, dim)
+            batchNorm(layer_dict)
+            swish(layer_dict)
+            conv(filter_size=3, out_dim=dim, name='conv1', add_summary=False, layer_dict=layer_dict, bn=bn, nl=tf.nn.relu, init_w=init_w, padding='SAME', pad_type='ZERO', is_training=is_training, wd=0)
+            batchNorm(layer_dict)
+            swish(layer_dict)
+            conv(filter_size=3, out_dim=dim, name='conv2', add_summary=False, layer_dict=layer_dict, bn=bn, nl=tf.nn.relu, init_w=init_w, padding='SAME', pad_type='ZERO', is_training=is_training, wd=0)
+            SE(layer_dict, dim)
+
+            return layer_dict['cur_input']
     
-                return layer_dict['cur_input']
-    
-@add_arg_scope
 def conv(filter_size,
          out_dim,
          layer_dict,
@@ -143,11 +135,6 @@ def conv(filter_size,
         padding = 'VALID'
 
     with tf.variable_scope(name):
-        if wd > 0:
-            regularizer = tf.contrib.layers.l2_regularizer(scale=wd)
-        else:
-            regularizer=None
-
         if pretrained_dict is not None and name in pretrained_dict:
             try:
                 load_w = pretrained_dict[name][0]
@@ -162,7 +149,7 @@ def conv(filter_size,
                                   filter_shape,
                                   initializer=init_w,
                                   trainable=trainable,
-                                  regularizer=regularizer)
+                                  regularizer=None)
         if add_summary:
             tf.summary.histogram(
                 'weights/{}'.format(name), weights, collections = ['train'])
@@ -200,7 +187,6 @@ def conv(filter_size,
         layer_dict[name] = layer_dict['cur_input']
         return layer_dict['cur_input']
 
-@add_arg_scope
 def linear(out_dim,
            layer_dict=None,
            inputs=None,
