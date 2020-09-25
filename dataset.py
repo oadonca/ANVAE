@@ -19,7 +19,7 @@ class dataset(object):
         self.data_path = data_path
         self.batch_size = batch_size
         self.epochs_completed = 0
-        self.img_dim = (64, 64)
+        self.img_dim = (32, 32)
         
         self.setup(epoch_val=0, batch_size=batch_size)
         self.load_files(data_path)
@@ -35,7 +35,7 @@ class dataset(object):
         rows = 28
         cols = 28
         self.data = np.reshape(self.data, (self.n_samples, rows, cols, 1))
-        self.temp_data = np.empty([self.n_samples, 64, 64, 1])
+        self.temp_data = np.empty([self.n_samples, 32, 32, 1])
         
         for i in range(self.n_samples):
             h, w, c  = self.data[i].shape

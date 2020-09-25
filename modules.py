@@ -11,26 +11,26 @@ import tensorflow as tf
 import tensorflow_probability as tfp
 
 def batchNorm(layer_dict, name="batch_norm"):
-    batch_mean, batch_var = tf.nn.moments(x=layer_dict['cur_input'])
-    layer_dict['cur_input'] = tf.nn.batch_normalization(x=layer_dict['cur_input'], mean=batch_mean, variance=batch_var, offset=None, scale=None, variance_epsilon=1e-3)
+    batch_mean, batch_var = tf.compat.v1.nn.moments(x=layer_dict['cur_input'], axes=[0, 1, 2])
+    layer_dict['cur_input'] = tf.compat.v1.nn.batch_normalization(x=layer_dict['cur_input'], mean=batch_mean, variance=batch_var, offset=None, scale=None, variance_epsilon=1e-3)
     return layer_dict['cur_input']
 
 def swish(layer_dict, name="swish"):
-    layer_dict['cur_input'] = tf.nn.swish(layer_dict['cur_input'])
+    layer_dict['cur_input'] = tf.compat.v1.nn.swish(layer_dict['cur_input'])
     return layer_dict['cur_input']
 
 def Global_Average_Pooling(x):
-    return tf.keras.layers.GlobalAveragePooling2D(x)
+    return tf.keras.layers.GlobalAveragePooling2D()(x)
 
 def Fully_connected(x, units, name='fully_connected') :
     with tf.name_scope(name) :
-        return tf.layers.dense(inputs=x, use_bias=False, units=units)
+        return tf.compat.v1.layers.dense(inputs=x, use_bias=False, units=units)
     
 def Relu(x):
-    return tf.nn.relu(x)
+    return tf.compat.v1.nn.relu(x)
 
 def Sigmoid(x) :
-    return tf.nn.sigmoid(x)
+    return tf.compat.v1.nn.sigmoid(x)
 
 def SE(layer_dict, out_dim, ratio = 16, name="SE"):
     with tf.name_scope(name) :
@@ -83,19 +83,19 @@ def batch_flatten(x):
     return tf.reshape(x, tf.stack([tf.shape(x)[0], -1]))
 
 def softplus(inputs, name):
-    return tf.log(1 + tf.exp(inputs), name=name)
+    return tf.compat.v1.log(1 + tf.exp(inputs), name=name)
 
 def encoder_cell(inputs, is_training, dim, wd=0, bn=False, name='encoder_cell', init_w=tf.keras.initializers.he_normal()):
         # init_w = tf.keras.initializers.he_normal()
         layer_dict = {}
         layer_dict['cur_input'] = inputs
-        with tf.variable_scope(name):
+        with tf.compat.v1.variable_scope(name):
             batchNorm(layer_dict)
             swish(layer_dict)
-            conv(filter_size=3, out_dim=dim, name='conv1', add_summary=False, layer_dict=layer_dict, bn=bn, nl=tf.nn.relu, init_w=init_w, padding='SAME', pad_type='ZERO', is_training=is_training, wd=0)
+            conv(filter_size=3, out_dim=dim, name='conv1', add_summary=False, layer_dict=layer_dict, bn=bn, nl=tf.compat.v1.nn.relu, init_w=init_w, padding='SAME', pad_type='ZERO', is_training=is_training, wd=0)
             batchNorm(layer_dict)
             swish(layer_dict)
-            conv(filter_size=3, out_dim=dim, name='conv2', add_summary=False, layer_dict=layer_dict, bn=bn, nl=tf.nn.relu, init_w=init_w, padding='SAME', pad_type='ZERO', is_training=is_training, wd=0)
+            conv(filter_size=3, out_dim=dim, name='conv2', add_summary=False, layer_dict=layer_dict, bn=bn, nl=tf.compat.v1.nn.relu, init_w=init_w, padding='SAME', pad_type='ZERO', is_training=is_training, wd=0)
             SE(layer_dict, dim)
 
             return layer_dict['cur_input']
@@ -134,7 +134,7 @@ def conv(filter_size,
             "REFLECT")
         padding = 'VALID'
 
-    with tf.variable_scope(name):
+    with tf.compat.v1.variable_scope(name):
         if pretrained_dict is not None and name in pretrained_dict:
             try:
                 load_w = pretrained_dict[name][0]
@@ -145,16 +145,17 @@ def conv(filter_size,
             load_w = np.reshape(load_w, filter_shape)
             init_w = tf.constant_initializer(load_w)
 
-        weights = tf.get_variable('weights',
+        weights = tf.compat.v1.get_variable('weights',
                                   filter_shape,
                                   initializer=init_w,
                                   trainable=trainable,
                                   regularizer=None)
+        
         if add_summary:
             tf.summary.histogram(
                 'weights/{}'.format(name), weights, collections = ['train'])
 
-        outputs = tf.nn.conv2d(inputs,
+        outputs = tf.compat.v1.nn.conv2d(inputs,
                                filter=weights,
                                strides=stride,
                                padding=padding,
@@ -174,7 +175,7 @@ def conv(filter_size,
                 load_b = np.reshape(load_b, [out_dim])
                 init_b = tf.constant_initializer(load_b)
 
-            biases = tf.get_variable('biases',
+            biases = tf.compat.v1.get_variable('biases',
                                  [out_dim],
                                  initializer=init_b,
                                  trainable=trainable)
@@ -195,7 +196,7 @@ def linear(out_dim,
            wd=0,
            name='Linear',
            nl=tf.identity):
-    with tf.variable_scope(name):
+    with tf.compat.v1.variable_scope(name):
         if inputs is None:
             assert layer_dict is not None
             inputs = layer_dict['cur_input']
@@ -206,20 +207,23 @@ def linear(out_dim,
             regularizer = tf.contrib.layers.l2_regularizer(scale=wd)
         else:
             regularizer=None
-        weights = tf.get_variable('weights',
+            
+        print(in_dim)
+        print(out_dim)
+        weights = tf.compat.v1.get_variable('weights',
                                   shape=[in_dim, out_dim],
                                   # dtype=None,
                                   initializer=init_w,
                                   regularizer=regularizer,
                                   trainable=True)
-        biases = tf.get_variable('biases',
+        biases = tf.compat.v1.get_variable('biases',
                                   shape=[out_dim],
                                   # dtype=None,
                                   initializer=init_b,
                                   regularizer=None,
                                   trainable=True)
         # print('init: {}'.format(weights))
-        act = tf.nn.xw_plus_b(inputs, weights, biases)
+        act = tf.compat.v1.nn.xw_plus_b(inputs, weights, biases)
         result = nl(act, name='output')
         if layer_dict is not None:
             layer_dict['cur_input'] = result

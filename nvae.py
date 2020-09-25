@@ -9,9 +9,10 @@ import tensorflow as tf
 import modules
 
 INIT_W = tf.keras.initializers.VarianceScaling()
+tf.compat.v1.disable_eager_execution()
 
 class NVAE():
-    def __init__(self, im_size=[64, 64], n_channel=1, n_class=None,
+    def __init__(self, im_size=[32, 32], n_channel=1, n_class=None,
                  use_label=False, use_supervise=False, add_noise=False, wd=0,
                  enc_weight=1., gen_weight=1., dis_weight=1.,
                  cat_dis_weight=1., cat_gen_weight=1., cls_weight=1.):
@@ -47,34 +48,34 @@ class NVAE():
         self.is_training = True
         
     def create_train_input(self):
-        self.image = tf.placeholder(
+        self.image = tf.compat.v1.placeholder(
             tf.float32, name='image',
             shape=[None, self._im_size[0], self._im_size[1], self._n_channel])
-        self.label = tf.placeholder(
+        self.label = tf.compat.v1.placeholder(
             tf.int64, name='label', shape=[None])
-        self.real_distribution = tf.placeholder(
+        self.real_distribution = tf.compat.v1.placeholder(
             tf.float32, name='real_distribution', shape=[None, self._im_size[0], self._im_size[1], self._n_channel])
-        self.real_y = tf.placeholder(
+        self.real_y = tf.compat.v1.placeholder(
             tf.int64, name='real_y', shape=[None])
-        self.lr = tf.placeholder(tf.float32, name='lr')
-        self.keep_prob = tf.placeholder(tf.float32, name='keep_prob')
+        self.lr = tf.compat.v1.placeholder(tf.float32, name='lr')
+        self.keep_prob = tf.compat.v1.placeholder(tf.float32, name='keep_prob')
     
     def create_train_model(self):
         self.is_training = True
-        self._create_train_input()
+        self.create_train_input()
         
-        with tf.variable_scope('AE', reuse=tf.AUTO_REUSE):
+        with tf.compat.v1.variable_scope('AE', reuse=tf.compat.v1.AUTO_REUSE):
             self.encoder_in = self.image
             self.layers['encoder_out'] = self.encoder(self.encoder_in)
             
-            self.layers['z'], self.layers['z_mu'], self.layers['z_std'] = self.sample_latent(self.layers['encoder_out'])
+            self.layers['z'], self.layers['z_mu'], self.layers['z_std'], self.layers['z_log_std'] = self.sample_latent(self.layers['encoder_out'])
             
             self.decoder_in = self.layers['z']
 
-            self.layers['decoder_out'] = self.decoder(self.decoder_in)
-            self.layers['sample_im'] = self.layers['decoder_out']
+            #self.layers['decoder_out'] = self.decoder(self.decoder_in)
+            #self.layers['sample_im'] = self.layers['decoder_out']
 
-        # with tf.variable_scope('regularization_z'):
+        # with tf.compat.v1.variable_scope('regularization_z'):
             # fake_in = self.layers['z']
             # real_in = self.real_distribution
             # self.layers['fake_z'] = self.latent_discriminator(fake_in)
@@ -98,9 +99,9 @@ class NVAE():
             return autoencoder_loss * self._enc_w
             
     def encoder(self, inputs):
-        with tf.variable_scope('encoder'):
+        with tf.compat.v1.variable_scope('encoder'):
             out = modules.encoder_cell(
-                inputs, self.is_training, keep_prob=self.keep_prob,
+                inputs, self.is_training, dim=8,
                 wd=self._wd, name='encoder_FC', init_w=INIT_W)
             return out
         
@@ -108,21 +109,20 @@ class NVAE():
     # def decoder(self):
         
     def sample_latent(self, encoder_out):
-        with tf.variable_scope('sample_latent'):
+        with tf.compat.v1.variable_scope('sample_latent'):
             cnn_out = self.layers['encoder_out']
             
             z_mean = modules.linear(
-                out_dim=16, layer_dict=self.layers,
+                out_dim=8, layer_dict=self.layers,
                 inputs=cnn_out, init_w=INIT_W, wd=self._wd, name='latent_mean')
             z_std = modules.linear(
-                out_dim=16, layer_dict=self.layers, nl=modules.softplus,
+                out_dim=8, layer_dict=self.layers, nl=modules.softplus,
                 inputs=cnn_out, init_w=INIT_W, wd=self._wd, name='latent_std')
-            z_log_std = tf.log(z_std + 1e-8)
+            z_log_std = tf.compat.v1.log(z_std + 1e-8)
 
             b_size = tf.shape(cnn_out)[0]
-            z = modules.tf_sample_diag_guassian(z_mean, z_std, b_size, self._n_code)
+            z = modules.tf_sample_diag_guassian(z_mean, z_std, b_size, 8)
             return z, z_mean, z_std, z_log_std
         
     def get_latent_space(self):
-        z = self.layers['z']
-        return z
+        return self.layers['z']
