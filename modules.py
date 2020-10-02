@@ -85,21 +85,95 @@ def batch_flatten(x):
 def softplus(inputs, name):
     return tf.compat.v1.log(1 + tf.exp(inputs), name=name)
 
-def encoder_cell(inputs, is_training, dim, wd=0, bn=False, name='encoder_cell', init_w=tf.keras.initializers.he_normal()):
+def encoder_cell(inputs, weights, biases, is_training, dim, wd=0, bn=False, name='encoder_cell', init_w=tf.keras.initializers.he_normal(), change_dim = False):
         # init_w = tf.keras.initializers.he_normal()
         layer_dict = {}
         layer_dict['cur_input'] = inputs
         with tf.compat.v1.variable_scope(name):
+            print('|'*90)
+            
+            if (change_dim):
+                conv(layer_dict, weights, biases, strides = 2, filter_size=3)
+                print("Conv-1/2: {}".format(layer_dict['cur_input'].shape))
+                
+            print("PRE: {}".format(layer_dict['cur_input'].shape))
+            
             batchNorm(layer_dict)
+            print("BN: {}".format(layer_dict['cur_input'].shape))
+            
             swish(layer_dict)
-            conv(filter_size=3, out_dim=dim, name='conv1', add_summary=False, layer_dict=layer_dict, bn=bn, nl=tf.compat.v1.nn.relu, init_w=init_w, padding='SAME', pad_type='ZERO', is_training=is_training, wd=0)
+            print("Swish: {}".format(layer_dict['cur_input'].shape))
+                
+            conv(layer_dict, weights, biases, out_c = dim, strides = 1, filter_size = 3, padding="SAME")
+            print("Conv: {}".format(layer_dict['cur_input'].shape))
+            
             batchNorm(layer_dict)
+            print("BN: {}".format(layer_dict['cur_input'].shape))
+            
             swish(layer_dict)
-            conv(filter_size=3, out_dim=dim, name='conv2', add_summary=False, layer_dict=layer_dict, bn=bn, nl=tf.compat.v1.nn.relu, init_w=init_w, padding='SAME', pad_type='ZERO', is_training=is_training, wd=0)
+            print("Swish: {}".format(layer_dict['cur_input'].shape))
+            
+            conv(layer_dict, weights, biases, out_c = dim, strides = 1, filter_size = 3, padding="SAME")
+            print("Conv: {}".format(layer_dict['cur_input'].shape))
+            
             SE(layer_dict, dim)
-
+            print("SE: {}".format(layer_dict['cur_input'].shape))
+            
+            print('|'*90)
             return layer_dict['cur_input']
     
+def conv2_wrapper(x, W, b, nl=tf.identity, strides=1, padding="SAME"):
+    # Conv2D wrapper, with bias and relu activation
+    x = tf.nn.conv2d(x, W, strides=[1, strides, strides, 1], padding=padding)
+    x = tf.nn.bias_add(x, b)
+    return nl(x)
+
+def conv(layer_dict, weights, biases, strides, filter_size, padding="VALID", out_c=None, trainable=True, name='conv', init_w=tf.keras.initializers.he_normal(), init_b=tf.zeros_initializer()):
+    inputs = layer_dict['cur_input']
+    
+    if (out_c == None):
+        out_c=inputs[3]
+    
+    output = conv2_wrapper(inputs, weights, biases, strides=strides, padding=padding)
+    
+    layer_dict['cur_input'] = output
+    layer_dict[name] = layer_dict['cur_input']
+    return layer_dict['cur_input']
+
+def linear(inputs, weights, biases, nl=tf.identity, name='linear'):
+    
+    inputs = inputs
+    
+    inputs = batch_flatten(inputs)
+    
+    output = tf.add(tf.matmul(inputs, weights), biases)
+    
+    output = nl(output)
+    
+    return output
+    
+def tf_sample_standard_diag_guassian(b_size, n_code):
+    mean_list = [0.0 for i in range(0, n_code)]
+    std_list = [1.0 for i in range(0, n_code)]
+    mvn = tfp.distributions.MultivariateNormalDiag(
+        loc=mean_list,
+        scale_diag=std_list)
+    samples = mvn.sample(sample_shape=(b_size,), seed=None, name='sample')
+    return samples
+
+def tf_sample_diag_guassian(mean, std, b_size, n_code):
+    mean_list = [0.0 for i in range(0, n_code)]
+    std_list = [1.0 for i in range(0, n_code)]
+    mvn = tfp.distributions.MultivariateNormalDiag(
+        loc=mean_list,
+        scale_diag=std_list)
+    samples = mvn.sample(sample_shape=(b_size,), seed=None, name='sample')
+    samples = mean +  tf.multiply(std, samples)
+
+    return samples
+
+
+"""
 def conv(filter_size,
          out_dim,
          layer_dict,
@@ -123,6 +197,8 @@ def conv(filter_size,
         inputs = layer_dict['cur_input']
     stride = get_shape4D(stride)
     in_dim = inputs.get_shape().as_list()[-1]
+    
+    # (3, 3, 1, out_dim)
     filter_shape = get_shape2D(filter_size) + [in_dim, out_dim]
 
     if padding == 'SAME' and pad_type == 'REFLECT':
@@ -147,9 +223,11 @@ def conv(filter_size,
 
         weights = tf.compat.v1.get_variable('weights',
                                   filter_shape,
-                                  initializer=init_w,
+                                  initializer=init_w, 
                                   trainable=trainable,
                                   regularizer=None)
+        
+        print("\nCONV WEIGHT: {}\n".format(weights.shape))
         
         if add_summary:
             tf.summary.histogram(
@@ -187,7 +265,8 @@ def conv(filter_size,
         layer_dict['cur_input'] = nl(outputs)
         layer_dict[name] = layer_dict['cur_input']
         return layer_dict['cur_input']
-
+"""
+"""
 def linear(out_dim,
            layer_dict=None,
            inputs=None,
@@ -207,9 +286,7 @@ def linear(out_dim,
             regularizer = tf.contrib.layers.l2_regularizer(scale=wd)
         else:
             regularizer=None
-            
-        print(in_dim)
-        print(out_dim)
+        
         weights = tf.compat.v1.get_variable('weights',
                                   shape=[in_dim, out_dim],
                                   # dtype=None,
@@ -229,25 +306,4 @@ def linear(out_dim,
             layer_dict['cur_input'] = result
             
         return result
-    
-def tf_sample_standard_diag_guassian(b_size, n_code):
-    mean_list = [0.0 for i in range(0, n_code)]
-    std_list = [1.0 for i in range(0, n_code)]
-    mvn = tfp.distributions.MultivariateNormalDiag(
-        loc=mean_list,
-        scale_diag=std_list)
-    samples = mvn.sample(sample_shape=(b_size,), seed=None, name='sample')
-    return samples
-
-def tf_sample_diag_guassian(mean, std, b_size, n_code):
-    mean_list = [0.0 for i in range(0, n_code)]
-    std_list = [1.0 for i in range(0, n_code)]
-    mvn = tfp.distributions.MultivariateNormalDiag(
-        loc=mean_list,
-        scale_diag=std_list)
-    samples = mvn.sample(sample_shape=(b_size,), seed=None, name='sample')
-    samples = mean +  tf.multiply(std, samples)
-    print('7'*80)
-    print(tf.shape(samples))
-
-    return samples
+"""

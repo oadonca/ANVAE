@@ -12,7 +12,7 @@ INIT_W = tf.keras.initializers.VarianceScaling()
 tf.compat.v1.disable_eager_execution()
 
 class NVAE():
-    def __init__(self, im_size=[32, 32], n_channel=1, n_class=None,
+    def __init__(self, im_size=[32, 32], batch_size = 128, n_channel=1, n_class=None,
                  use_label=False, use_supervise=False, add_noise=False, wd=0,
                  enc_weight=1., gen_weight=1., dis_weight=1.,
                  cat_dis_weight=1., cat_gen_weight=1., cls_weight=1.):
@@ -34,6 +34,7 @@ class NVAE():
                 cat_dis_weight (float): weight of label y discriminator loss
                 cls_weight (float): weight of classification loss
         """
+        self.levels = [2, 2]
         self._n_channel = n_channel
         self._wd = wd
         self._im_size = im_size
@@ -46,6 +47,7 @@ class NVAE():
         self._cls_w = cls_weight
         self.layers = {}
         self.is_training = True
+        self.batch_size = batch_size
         
     def create_train_input(self):
         self.image = tf.compat.v1.placeholder(
@@ -68,7 +70,7 @@ class NVAE():
             self.encoder_in = self.image
             self.layers['encoder_out'] = self.encoder(self.encoder_in)
             
-            self.layers['z'], self.layers['z_mu'], self.layers['z_std'], self.layers['z_log_std'] = self.sample_latent(self.layers['encoder_out'])
+            self.layers['z'] = self.sample_latent(self.layers['encoder_out'])
             
             self.decoder_in = self.layers['z']
 
@@ -100,29 +102,82 @@ class NVAE():
             
     def encoder(self, inputs):
         with tf.compat.v1.variable_scope('encoder'):
-            out = modules.encoder_cell(
-                inputs, self.is_training, dim=8,
-                wd=self._wd, name='encoder_FC', init_w=INIT_W)
-            return out
+            self.create_encoder_param()
+            outs = []
+            # (batch, 32, 32, 1) -> (batch, 15, 15, 32)
+            outs.append(modules.encoder_cell(
+                inputs, self.eweights['ew1'], self.ebiases['eb1'], self.is_training, dim=32,
+                wd=self._wd, name='encoder_FC1', init_w=INIT_W, change_dim=True))
+            
+            # (batch, 15, 15, 32) -> (batch, 15, 15, 32)
+            outs.append(modules.encoder_cell(
+                outs[len(outs) - 1], self.eweights['ew2'], self.ebiases['eb2'], self.is_training, dim=32,
+                wd=self._wd, name='encoder_FC2', init_w=INIT_W))
+
+            # (batch, 15, 15, 32) -> (batch, 7, 7, 64)
+            outs.append(modules.encoder_cell(
+                outs[len(outs) - 1], self.eweights['ew3'], self.ebiases['eb3'], self.is_training, dim=64,
+                wd=self._wd, name='encoder_FC3', init_w=INIT_W, change_dim=True))
+            
+            # (batch, 15, 15, 32) -> (batch, 7, 7, 64)
+            outs.append(modules.encoder_cell(
+                outs[len(outs) - 1], self.eweights['ew4'], self.ebiases['eb4'], self.is_training, dim=64,
+                wd=self._wd, name='encoder_FC4', init_w=INIT_W))
+
+            return outs
         
             
     # def decoder(self):
         
     def sample_latent(self, encoder_out):
         with tf.compat.v1.variable_scope('sample_latent'):
-            cnn_out = self.layers['encoder_out']
+            self.create_linear_param()
+            inputs = self.layers['encoder_out']
+            zs = []
+            for i in range(len(inputs)):
+                output = modules.linear(inputs[i], self.lweights['lw{}'.format(i+1)], self.lbiases['lb{}'.format(i+1)])
+                print(output.shape)
+                
+                mean, logvar = tf.split(output, num_or_size_splits=2, axis=1)
+                print(mean.shape)
+                print(logvar.shape)
+                
+                print(tf.exp(logvar * .5).shape)
+                
+                z = tf.random.normal([self.batch_size, mean.shape[1]]) * tf.exp(logvar * .5) + mean
+                
+                zs.append(z)
             
-            z_mean = modules.linear(
-                out_dim=8, layer_dict=self.layers,
-                inputs=cnn_out, init_w=INIT_W, wd=self._wd, name='latent_mean')
-            z_std = modules.linear(
-                out_dim=8, layer_dict=self.layers, nl=modules.softplus,
-                inputs=cnn_out, init_w=INIT_W, wd=self._wd, name='latent_std')
-            z_log_std = tf.compat.v1.log(z_std + 1e-8)
-
-            b_size = tf.shape(cnn_out)[0]
-            z = modules.tf_sample_diag_guassian(z_mean, z_std, b_size, 8)
-            return z, z_mean, z_std, z_log_std
+            
+            return zs       
         
     def get_latent_space(self):
         return self.layers['z']
+
+    def create_encoder_param(self):
+        self.eweights = {
+            'ew1': tf.Variable(tf.random.normal([3, 3, 1, 32])),
+            'ew2': tf.Variable(tf.random.normal([3, 3, 32, 32])),
+            'ew3': tf.Variable(tf.random.normal([3, 3, 32, 64])),
+            'ew4': tf.Variable(tf.random.normal([3, 3, 64, 64])),
+        }
+        self.ebiases = {
+            'eb1': tf.Variable(tf.random.normal([32])),
+            'eb2': tf.Variable(tf.random.normal([32])),
+            'eb3': tf.Variable(tf.random.normal([64])),
+            'eb4': tf.Variable(tf.random.normal([64])),
+        }
+        
+    def create_linear_param(self):
+        self.lweights = {
+            'lw1': tf.Variable(tf.random.normal([15*15*32, 2*15*15*32])),
+            'lw2': tf.Variable(tf.random.normal([15*15*32, 2*15*15*32])),
+            'lw3': tf.Variable(tf.random.normal([7*7*64, 2*7*7*64])),
+            'lw4': tf.Variable(tf.random.normal([7*7*64, 2*7*7*64])),
+        }
+        self.lbiases = {
+            'lb1': tf.Variable(tf.random.normal([2*15*15*32])),
+            'lb2': tf.Variable(tf.random.normal([2*15*15*32])),
+            'lb3': tf.Variable(tf.random.normal([2*7*7*64])),
+            'lb4': tf.Variable(tf.random.normal([2*7*7*64])),
+        }

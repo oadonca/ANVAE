@@ -18,7 +18,7 @@ batch_size = 128
 
 train_data = dataset(data_path = TRAIN_PATH, batch_size=batch_size)
 
-train_model = nvae.NVAE()
+train_model = nvae.NVAE(batch_size=batch_size)
 train_model.create_train_model()
 
 tf.compat.v1.disable_eager_execution()
@@ -28,7 +28,8 @@ sess = tf.compat.v1.Session()
 sess.run(tf.compat.v1.global_variables_initializer())
 batch_data, batch_labels = train_data.next_batch()
 z = sess.run(train_model.get_latent_space(), feed_dict={train_model.image: batch_data})
-print(z)
-print(z.shape)
+    
+for i in z:
+    print(i.shape)
 
 sess.close()
