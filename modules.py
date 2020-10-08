@@ -15,6 +15,20 @@ def batchNorm(layer_dict, name="batch_norm"):
     layer_dict['cur_input'] = tf.compat.v1.nn.batch_normalization(x=layer_dict['cur_input'], mean=batch_mean, variance=batch_var, offset=None, scale=None, variance_epsilon=1e-3)
     return layer_dict['cur_input']
 
+class SEKeras(tf.keras.layers.Layer):
+    def __init__(self, z_dim, red = 16):
+        super(SEKeras, self).__init__()
+        reduced_channels = max(z_dim // red, int(z_dim ** 0.5))
+        self.fc = tf.keras.Sequential()
+        self.fc.add(tf.keras.layers.AveragePooling2D(1))
+        self.fc.add(tf.keras.layers.Dense(reduced_channels, use_bias=False))
+        self.fc.add(tf.keras.layers.ReLU())
+        self.fc.add(tf.keras.layers.Dense(z_dim, use_bias=False))
+        self.fc.add(tf.keras.layers.Activation('sigmoid'))     
+        
+    def call(self, x):
+        return x * self.fc(x)
+
 def swish(layer_dict, name="swish"):
     layer_dict['cur_input'] = tf.compat.v1.nn.swish(layer_dict['cur_input'])
     return layer_dict['cur_input']
@@ -90,37 +104,26 @@ def encoder_cell(inputs, weights, biases, is_training, dim, wd=0, bn=False, name
         layer_dict = {}
         layer_dict['cur_input'] = inputs
         with tf.compat.v1.variable_scope(name):
-            print('|'*90)
             
             if (change_dim):
                 conv(layer_dict, weights, biases, strides = 2, filter_size=3)
-                print("Conv-1/2: {}".format(layer_dict['cur_input'].shape))
                 
-            print("PRE: {}".format(layer_dict['cur_input'].shape))
-            
             batchNorm(layer_dict)
-            print("BN: {}".format(layer_dict['cur_input'].shape))
             
             swish(layer_dict)
-            print("Swish: {}".format(layer_dict['cur_input'].shape))
                 
             conv(layer_dict, weights, biases, out_c = dim, strides = 1, filter_size = 3, padding="SAME")
-            print("Conv: {}".format(layer_dict['cur_input'].shape))
             
             batchNorm(layer_dict)
-            print("BN: {}".format(layer_dict['cur_input'].shape))
             
             swish(layer_dict)
-            print("Swish: {}".format(layer_dict['cur_input'].shape))
             
             conv(layer_dict, weights, biases, out_c = dim, strides = 1, filter_size = 3, padding="SAME")
-            print("Conv: {}".format(layer_dict['cur_input'].shape))
             
             SE(layer_dict, dim)
-            print("SE: {}".format(layer_dict['cur_input'].shape))
             
-            print('|'*90)
             return layer_dict['cur_input']
+    
     
 def conv2_wrapper(x, W, b, nl=tf.identity, strides=1, padding="SAME"):
     # Conv2D wrapper, with bias and relu activation
@@ -128,7 +131,7 @@ def conv2_wrapper(x, W, b, nl=tf.identity, strides=1, padding="SAME"):
     x = tf.nn.bias_add(x, b)
     return nl(x)
 
-def conv(layer_dict, weights, biases, strides, filter_size, padding="VALID", out_c=None, trainable=True, name='conv', init_w=tf.keras.initializers.he_normal(), init_b=tf.zeros_initializer()):
+def conv(layer_dict, weights, biases, strides, filter_size, channel_mult = 1, padding="VALID", out_c=None, trainable=True, name='conv', init_w=tf.keras.initializers.he_normal(), init_b=tf.zeros_initializer()):
     inputs = layer_dict['cur_input']
     
     if (out_c == None):

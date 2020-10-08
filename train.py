@@ -12,7 +12,7 @@ import nvae
 
 TRAIN_PATH = './Data/mnist_train.csv'
 TEST_PATH = './Data/mnist_test.csv'
-batch_size = 128
+batch_size = 4
 
 
 

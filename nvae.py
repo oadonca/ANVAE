@@ -126,9 +126,10 @@ class NVAE():
 
             return outs
         
+    def decoder(self):
+        with tf.compat.v1.variable_scope('encoder'):
+            self.create_decoder_param()
             
-    # def decoder(self):
-        
     def sample_latent(self, encoder_out):
         with tf.compat.v1.variable_scope('sample_latent'):
             self.create_linear_param()
@@ -145,7 +146,7 @@ class NVAE():
                 print(tf.exp(logvar * .5).shape)
                 
                 z = tf.random.normal([self.batch_size, mean.shape[1]]) * tf.exp(logvar * .5) + mean
-                
+                print(z.shape)
                 zs.append(z)
             
             
@@ -162,6 +163,22 @@ class NVAE():
             'ew4': tf.Variable(tf.random.normal([3, 3, 64, 64])),
         }
         self.ebiases = {
+            'eb1': tf.Variable(tf.random.normal([32])),
+            'eb2': tf.Variable(tf.random.normal([32])),
+            'eb3': tf.Variable(tf.random.normal([64])),
+            'eb4': tf.Variable(tf.random.normal([64])),
+        }
+        
+    def create_decoder_param(self):
+        self.dweights = {
+            'dw1': tf.Variable(tf.random.normal([3, 3, 1, 32])),
+            'dw2': tf.Variable(tf.random.normal([3, 3, 32, 32])),
+            'dw3': tf.Variable(tf.random.normal([3, 3, 32, 64])),
+            'dw4': tf.Variable(tf.random.normal([3, 3, 64, 64])),
+            'dw4': tf.Variable(tf.random.normal([3, 3, 64, 64])),
+            'dw4': tf.Variable(tf.random.normal([3, 3, 64, 64])),
+        }
+        self.dbiases = {
             'eb1': tf.Variable(tf.random.normal([32])),
             'eb2': tf.Variable(tf.random.normal([32])),
             'eb3': tf.Variable(tf.random.normal([64])),
