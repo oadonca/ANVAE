@@ -19,6 +19,10 @@ train_data = dataset(data_path = TRAIN_PATH, batch_size=batch_size)
 
 train_model = nvaeKeras.NVAE(latent_spaces, batch_size)
 
-z = train_model(train_data)
+train_model.compile(run_eagerly=True)
+
+image_batch, label_batch = train_data.next_batch()
+
+z = train_model(image_batch)
 
 print(z)
