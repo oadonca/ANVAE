@@ -25,4 +25,5 @@ image_batch, label_batch = train_data.next_batch()
 
 z = train_model(image_batch)
 
-print(z)
+for x in z:
+    print(x.shape)

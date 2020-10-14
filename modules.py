@@ -9,6 +9,8 @@ import math
 import numpy as np
 import tensorflow as tf
 import tensorflow_probability as tfp
+import functools
+
 
 def batchNorm(layer_dict, name="batch_norm"):
     batch_mean, batch_var = tf.compat.v1.nn.moments(x=layer_dict['cur_input'], axes=[0, 1, 2])
@@ -174,6 +176,154 @@ def tf_sample_diag_guassian(mean, std, b_size, n_code):
     samples = mean +  tf.multiply(std, samples)
 
     return samples
+
+class AbsoluteVariationalBlock(tf.keras.Model):
+    def __init__(self, sample, decoded_sample, computed):
+        super(AbsoluteVariationalBlock, self).__init__()
+        self.sample = sample
+        self.decoded_sample = decoded_sample
+        self.computed = computed
+
+    def call(self, head):
+        sample, kl = self.sample(head)
+        computed = self.computed(
+            self.decoded_sample(sample)
+        )
+        return computed, kl
+
+    def generated(self, shape, prior_std):
+        return self.computed(
+            self.decoded_sample(
+                self.sample.generated(shape, prior_std)
+            )
+        )
+
+class RelativeVariationalBlock(tf.keras.Model):
+    def __init__(self, sample, decoded_sample, computed):
+        super(RelativeVariationalBlock, self).__init__()
+        self.sample = sample
+        self.decoded_sample = decoded_sample
+        self.computed = computed
+
+    def forward(self, previous, feature):
+        sample, kl = self.sample(previous, feature)
+        computed = self.computed(
+            self.decoded_sample(sample),
+            previous,
+        )
+        return computed, kl
+
+    def generated(self, previous, prior_std):
+        return self.computed(
+            self.decoded_sample(
+                self.sample.generated(previous, prior_std)
+            ),
+            previous,
+        )
+
+
+class AbsoluteVariational(tf.keras.Model):
+    def __init__(self, parameters):
+        super().__init__()
+        self.variational_parameters = parameters
+
+    @staticmethod
+    def sample(mean, log_variance):
+        std = tf.math.exp(0.5 * log_variance)
+        return mean + tf.random.normal(shape=std.shape) * std
+
+    @staticmethod
+    def kl(mean, log_variance):
+        loss = -0.5 * (1 + log_variance - mean ** 2 - tf.math.exp(log_variance))
+        # return loss.flatten(start_dim=1).sum(dim=1).mean(dim=0)
+        return loss.mean()
+
+    def call(self, feature):
+        temp = self.variational_parameters(feature)
+        mean, log_variance = tf.split(temp, 2)
+        # print('absolute mean:', mean.view(-1)[:5])
+        # print('absolute log_variance:', log_variance.view(-1)[:5])
+        return (
+            AbsoluteVariational.sample(mean, log_variance),
+            AbsoluteVariational.kl(mean, log_variance),
+        )
+
+    def generated(self, shape, prior_std):
+        return tf.random.normal(shape) * prior_std
+    
+class RelativeVariational(tf.keras.Model):
+    def __init__(self, absolute_parameters, relative_parameters):
+        super(RelativeVariational, self).__init__()
+        self.absolute_parameters = absolute_parameters
+        self.relative_parameters = relative_parameters
+
+    @staticmethod
+    def kl(mean, log_variance, delta_mean, delta_log_variance):
+        var = tf.math.exp(log_variance)
+        delta_var = tf.math.exp(delta_log_variance)
+        loss = -0.5 * (
+            1 + delta_log_variance - delta_mean ** 2 / var - delta_var
+        )
+        # return loss.flatten(start_dim=1).sum(dim=1).mean(dim=0)
+        return loss.mean()
+
+    def forward(self, previous, feature):
+        mean, log_variance = self.absolute_parameters(previous)
+        delta_mean, delta_log_variance = self.relative_parameters(
+            previous, feature
+        )
+        # print('relative mean:', (mean + delta_mean).view(-1)[:5])
+        # print('relative log_variance:', (log_variance + delta_log_variance).view(-1)[:5])
+        return (
+            AbsoluteVariational.sample(
+                mean + delta_mean, log_variance + delta_log_variance
+            ),
+            RelativeVariational.kl(
+                mean, log_variance, delta_mean, delta_log_variance
+            ),
+        )
+
+    def generated(self, previous, prior_std):
+        temp = self.absolute_parameters(previous)
+        mean, log_variancemean, log_variance = tf.split(temp, 2)
+        return AbsoluteVariational.sample(
+            mean, log_variance + 2 * np.log(prior_std)
+        )
+
+class RandomFourier(tf.keras.layers.Layer):
+    def __init__(self, fourier_channels):
+        super(RandomFourier, self).__init__()
+        if fourier_channels % 2 != 0:
+            raise ValueError('Out channel must be divisible by 4')
+
+        self.register_buffer(
+            'random_matrix', tf.random.normal((2, fourier_channels // 2))
+        )
+
+    @staticmethod
+    def gridspace(x):
+        h, w = x.shape[-2:]
+        grid_y, grid_x = tf.meshgrid([
+            tf.linspace(0, 1, num=h),
+            tf.linspace(0, 1, num=w)
+        ])
+        return (
+            tf.stack([grid_y, grid_x])
+            .unsqueeze(0)
+            .repeat(x.shape[0], 1, 1, 1)
+            .to(x)
+        )
+
+    def call(self, x):
+        gridspace = RandomFourier.gridspace(x)
+        projection = (
+            (2 * np.pi * gridspace.transpose(1, -1)) @ self.random_matrix
+        ).transpose(1, -1)
+        return tf.concat([
+            x,
+            tf.math.sin(projection),
+            tf.math.cos(projection),
+        ], dim=1)
 
 
 """
