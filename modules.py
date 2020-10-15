@@ -205,12 +205,10 @@ class RelativeVariationalBlock(tf.keras.Model):
         self.decoded_sample = decoded_sample
         self.computed = computed
 
-    def forward(self, previous, feature):
+    def call(self, previous, feature):
         sample, kl = self.sample(previous, feature)
-        computed = self.computed(
-            self.decoded_sample(sample),
-            previous,
-        )
+        ccat = tf.concat([self.decoded_sample(sample), previous], axis=-1)
+        computed = self.computed(ccat)
         return computed, kl
 
     def generated(self, previous, prior_std):
@@ -236,11 +234,11 @@ class AbsoluteVariational(tf.keras.Model):
     def kl(mean, log_variance):
         loss = -0.5 * (1 + log_variance - mean ** 2 - tf.math.exp(log_variance))
         # return loss.flatten(start_dim=1).sum(dim=1).mean(dim=0)
-        return loss.mean()
+        return tf.keras.backend.mean(loss)
 
     def call(self, feature):
         temp = self.variational_parameters(feature)
-        mean, log_variance = tf.split(temp, 2)
+        mean, log_variance = tf.split(temp, 2, -1)
         # print('absolute mean:', mean.view(-1)[:5])
         # print('absolute log_variance:', log_variance.view(-1)[:5])
         return (
@@ -265,13 +263,14 @@ class RelativeVariational(tf.keras.Model):
             1 + delta_log_variance - delta_mean ** 2 / var - delta_var
         )
         # return loss.flatten(start_dim=1).sum(dim=1).mean(dim=0)
-        return loss.mean()
+        return tf.keras.backend.mean(loss)
 
-    def forward(self, previous, feature):
-        mean, log_variance = self.absolute_parameters(previous)
-        delta_mean, delta_log_variance = self.relative_parameters(
-            previous, feature
-        )
+    def call(self, previous, feature):
+        temp = self.absolute_parameters(previous)
+        mean, log_variance = tf.split(temp, 2, -1)
+        ccat = tf.concat([previous,feature], axis = -1)
+        temp = self.relative_parameters(ccat)
+        delta_mean, delta_log_variance = tf.split(temp, 2, -1)
         # print('relative mean:', (mean + delta_mean).view(-1)[:5])
         # print('relative log_variance:', (log_variance + delta_log_variance).view(-1)[:5])
         return (
@@ -285,7 +284,7 @@ class RelativeVariational(tf.keras.Model):
 
     def generated(self, previous, prior_std):
         temp = self.absolute_parameters(previous)
-        mean, log_variancemean, log_variance = tf.split(temp, 2)
+        mean, log_variance = tf.split(temp, 2, -1)
         return AbsoluteVariational.sample(
             mean, log_variance + 2 * np.log(prior_std)
         )
@@ -296,34 +295,37 @@ class RandomFourier(tf.keras.layers.Layer):
         if fourier_channels % 2 != 0:
             raise ValueError('Out channel must be divisible by 4')
 
-        self.register_buffer(
-            'random_matrix', tf.random.normal((2, fourier_channels // 2))
-        )
+        self.random_matrix = tf.random.normal((2, fourier_channels // 2))
+        
 
     @staticmethod
     def gridspace(x):
-        h, w = x.shape[-2:]
-        grid_y, grid_x = tf.meshgrid([
+        h = x.shape[1]
+        w = x.shape[2]
+        grid_y, grid_x = tf.meshgrid(
             tf.linspace(0, 1, num=h),
             tf.linspace(0, 1, num=w)
-        ])
+        )
         return (
-            tf.stack([grid_y, grid_x])
-            .unsqueeze(0)
-            .repeat(x.shape[0], 1, 1, 1)
-            .to(x)
+            tf.cast(tf.tile(tf.expand_dims(tf.stack([grid_y, grid_x]), 0), (x.shape[0], 1, 1, 1)), x.dtype)
         )
 
     def call(self, x):
         gridspace = RandomFourier.gridspace(x)
         projection = (
-            (2 * np.pi * gridspace.transpose(1, -1)) @ self.random_matrix
-        ).transpose(1, -1)
+            (2 * np.pi * tf.transpose(gridspace, perm=[0, 3, 2, 1])) @ self.random_matrix
+        )
+        print('*'*80)
+        print(x.shape)
+        print(gridspace.shape)
+        print(projection.shape)
+        print(tf.math.sin(projection).shape)
+        print(tf.math.cos(projection).shape)
         return tf.concat([
             x,
             tf.math.sin(projection),
             tf.math.cos(projection),
-        ], dim=1)
+        ], axis=-1)
 
 
 """

@@ -23,7 +23,19 @@ train_model.compile(run_eagerly=True)
 
 image_batch, label_batch = train_data.next_batch()
 
-z = train_model(image_batch)
+features, logits, loc, scale, kl_losses = train_model(image_batch)
 
-for x in z:
-    print(x.shape)
+print("Shape - Features:")
+print(features.shape)
+
+print("Shape - Logits:")
+print(logits.shape)
+
+print("Shape - Loc:")
+print(loc.shape)
+
+print("Shape - Scale:")
+print(scale.shape)
+
+print("Shape - kl_losses:")
+print(kl_losses.shape)
