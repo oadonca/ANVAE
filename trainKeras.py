@@ -20,22 +20,18 @@ train_data = dataset(data_path = TRAIN_PATH, batch_size=batch_size)
 train_model = nvaeKeras.NVAE(latent_spaces, batch_size)
 
 train_model.compile(run_eagerly=True)
-
+print("^"*80)
 image_batch, label_batch = train_data.next_batch()
 
-features, logits, loc, scale, kl_losses = train_model(image_batch)
+features, image, kl_losses = train_model(image_batch)
 
 print("Shape - Features:")
-print(features.shape)
+for feature in features:
+    print(feature.shape)
 
-print("Shape - Logits:")
-print(logits.shape)
-
-print("Shape - Loc:")
-print(loc.shape)
-
-print("Shape - Scale:")
-print(scale.shape)
+print("Shape - Image:")
+print(image.shape)
 
 print("Shape - kl_losses:")
-print(kl_losses.shape)
+for kl in kl_losses:
+    print(kl)

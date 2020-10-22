@@ -22,9 +22,9 @@ class NVAE(tf.keras.Model):
         self.latent_channels = 20
         
         self.encoder = encoder.Encoder(self.latent_spaces, self.input_s)
-        self.decoder = decoder.Decoder(self.encoder(tf.zeros([1, 32, 32, 1])), latent_channels=self.latent_channels, level_sizes=self.level_sizes)
+        self.decoder = decoder.Decoder(self.encoder(tf.zeros([self.batch_size, 32, 32, 1])), latent_channels=self.latent_channels, level_sizes=self.level_sizes)
         
     def call(self, image_batch):
         features = self.encoder(image_batch)
-        (logits, loc, scale), kl_losses = self.decoder(features)
-        return features, logits, loc, scale, kl_losses
+        image, kl_losses = self.decoder(features)
+        return features, image, kl_losses

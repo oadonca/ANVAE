@@ -75,6 +75,7 @@ def AbsoluteVariationalBlock(feature_shape, latent_channels):
 
 def RelativeVariationalBlock(previous_shape, feature_shape, latent_channels):
     channels = feature_shape[-1]
+    print(previous_shape)
     return modules.RelativeVariationalBlock(
         sample = modules.RelativeVariational(
             absolute_parameters = tf.keras.Sequential(
@@ -105,8 +106,8 @@ def RelativeVariationalBlock(previous_shape, feature_shape, latent_channels):
             [
                 # x[0] = decoded_sample, x[1] = previous
                 # tf.keras.layers.Lambda(lambda decoded_sample, previous: (tf.concat([decoded_sample, previous], axis=1))),
-                DecoderCell(channels+previous_shape[1]),
-                tf.keras.layers.Conv2D(channels, kernel_size=1)
+                DecoderCell(channels+previous_shape[-1]),
+                tf.keras.layers.Conv2D(channels+previous_shape[-1], kernel_size=1)
             ]
         )  
     )
@@ -120,26 +121,30 @@ class Decoder(tf.keras.Model):
         self.latent_height = example_features[-1].shape[-3]
         self.latent_width = example_features[-1].shape[-2]
         
-        relative_variational_blocks = []
-        upsampled_blocks = []
+        self.relative_variational_blocks = []
+        self.upsampled_blocks = []
         for level_index, (level_size, example_feature) in enumerate(zip(level_sizes, reversed(example_features))):
+            
+
             inner_blocks = []
-            for block_index in range(1 if level_index == 0 else 0, level_size):
+            print('*'*80)
+
+            for block_index in range(level_size):
                 relative_variational_block = RelativeVariationalBlock(
                     previous.shape,
                     example_feature.shape,
                     latent_channels
                 )
+                print(previous.shape)
+                print('^'*80)
+                print(example_feature.shape)
                 previous, _ = relative_variational_block(previous, example_feature)
                 inner_blocks.append(relative_variational_block)
                 
-            relative_variational_blocks.append(tf.keras.Sequential(inner_blocks))
+            self.relative_variational_blocks.append(inner_blocks)
             upsample = UpsampleBlock(previous.shape[-1], 8 if level_index == len(level_sizes)-1 else 2)
             previous = upsample(previous)
-            upsampled_blocks.append(upsample)
-            
-        self.relative_variational_blocks = tf.keras.Sequential(relative_variational_blocks)
-        self.upsampled_blocks = tf.keras.Sequential(upsampled_blocks)
+            self.upsampled_blocks.append(upsample)
         
         self.n_mixture_components = 5
         
@@ -147,17 +152,7 @@ class Decoder(tf.keras.Model):
             [
                 DecoderCell(previous.shape[-1]),
                 tf.keras.layers.BatchNormalization(),
-                tf.keras.layers.Conv2D(3*3*self.n_mixture_components, kernel_size=1),
-                tf.keras.layers.Lambda(
-                    lambda x: np.reshape(x, (-1, 3, 3 * self.n_mixture_components, 32, 32))
-                ),
-                tf.keras.layers.Lambda(lambda x: np.transpose(x, (0, 3, 4, 1, 2))),
-                tf.keras.layers.Lambda(lambda x: np.split(x, 3, axis=-1)),
-                tf.keras.layers.Lambda(lambda logits, unlimited_loc, unlimited_scale: (
-                    logits,
-                    tf.math.tanh(unlimited_loc),
-                    tf.math.softplus(unlimited_scale)
-                ))
+                tf.keras.layers.Conv2D(1, strides=4, kernel_size=1),
             ]
         )
         
@@ -169,9 +164,11 @@ class Decoder(tf.keras.Model):
         for feature, blocks, upsampled in zip(reversed(features), self.relative_variational_blocks, self.upsampled_blocks):
             for block in blocks:
                 head, relative_kl = block(head, feature)
-                kl.losses.append(relative_kl)
+                kl_losses.append(relative_kl)
             head = upsampled(head)
             
+        print(head.shape)
+          
         return (
             self.image(head),
             kl_losses

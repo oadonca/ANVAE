@@ -37,10 +37,10 @@ class Encoder(tf.keras.Model):
             curLevel = tf.keras.Sequential()
             
             if(level == 0):
-                self.z_dim *= 8
+                self.z_dim *= 4
                 curLevel.add(tf.keras.layers.InputLayer(self.input_s))
                 curLevel.add(tf.keras.layers.Conv2D(filters=self.z_dim, kernel_size=1, strides=2, use_bias=False))
-                self.input_s = [self.input_s[0] // 2, self.input_s[1] // 2, self.input_s[2] * 8]
+                self.input_s = [self.input_s[0] // 2, self.input_s[1] // 2, self.input_s[2] * 4]
             else:
                 self.z_dim *= 2
                 curLevel.add(tf.keras.layers.InputLayer(self.input_s))

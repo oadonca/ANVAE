@@ -315,12 +315,6 @@ class RandomFourier(tf.keras.layers.Layer):
         projection = (
             (2 * np.pi * tf.transpose(gridspace, perm=[0, 3, 2, 1])) @ self.random_matrix
         )
-        print('*'*80)
-        print(x.shape)
-        print(gridspace.shape)
-        print(projection.shape)
-        print(tf.math.sin(projection).shape)
-        print(tf.math.cos(projection).shape)
         return tf.concat([
             x,
             tf.math.sin(projection),
