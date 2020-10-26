@@ -75,7 +75,6 @@ def AbsoluteVariationalBlock(feature_shape, latent_channels):
 
 def RelativeVariationalBlock(previous_shape, feature_shape, latent_channels):
     channels = feature_shape[-1]
-    print(previous_shape)
     return modules.RelativeVariationalBlock(
         sample = modules.RelativeVariational(
             absolute_parameters = tf.keras.Sequential(
@@ -127,7 +126,6 @@ class Decoder(tf.keras.Model):
             
 
             inner_blocks = []
-            print('*'*80)
 
             for block_index in range(level_size):
                 relative_variational_block = RelativeVariationalBlock(
@@ -135,9 +133,6 @@ class Decoder(tf.keras.Model):
                     example_feature.shape,
                     latent_channels
                 )
-                print(previous.shape)
-                print('^'*80)
-                print(example_feature.shape)
                 previous, _ = relative_variational_block(previous, example_feature)
                 inner_blocks.append(relative_variational_block)
                 
@@ -166,8 +161,6 @@ class Decoder(tf.keras.Model):
                 head, relative_kl = block(head, feature)
                 kl_losses.append(relative_kl)
             head = upsampled(head)
-            
-        print(head.shape)
           
         return (
             self.image(head),

@@ -6,6 +6,7 @@ Created on Wed Oct  7 13:30:12 2020
 """
 
 import tensorflow as tf
+import tensorflow_probability as tfp
 import modules
 
 class EncoderCell(tf.keras.Model):
@@ -54,9 +55,11 @@ class Encoder(tf.keras.Model):
             
     def call(self, head):
         features = list()
-        print(self.levels)
         for level in self.levels:
             head = level(head)
             features.append(head)
         return features
+    
+
+    
     
