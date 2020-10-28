@@ -1,7 +1,7 @@
 # ANVAE
 Adversarial Nouveau Variational Autoencoder
 
-Unofficial combination of NVAE and AAE/VAEGAN:
+A network made using concepts from NVAE and AAE/VAEGAN:
 
 NVAE: https://arxiv.org/abs/2007.03898
 
