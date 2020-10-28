@@ -57,9 +57,9 @@ class dataset(object):
             
         self.data = self.temp_data
 
-        self.suffle_files()
+        self.shuffle_files()
         
-    def suffle_files(self):
+    def shuffle_files(self):
         idxs = np.arange(self.size())
 
         self.rng.shuffle(idxs)
@@ -83,11 +83,10 @@ class dataset(object):
         if self.image_id + self.batch_size > self.size():
             self.epochs_completed += 1
             self.image_id = 0
-            self.suffle_files()
+            self.shuffle_files()
         return [batch_data, batch_labels]
 
     def setup(self, epoch_val, batch_size, **kwargs):
-        self.reset_epochs_completed()
         self.reset_state()
         
     def reset_epoch(self):

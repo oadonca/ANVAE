@@ -11,9 +11,9 @@ import numpy
 import encoder
 import decoder
 
-class NVAE(tf.keras.Model):
+class ANVAE(tf.keras.Model):
     def __init__(self, latent_spaces, batch_size):
-        super(NVAE, self).__init__()
+        super(ANVAE, self).__init__()
         
         self.batch_size = batch_size
         self.latent_spaces = 3
@@ -92,8 +92,6 @@ class NVAE(tf.keras.Model):
                 loc=[0.0] * z.shape[-1], scale_diag=[1.0] * z.shape[-1]
             ))
             
-        for z in zs:
-            print(z.shape)
         xg = self.decode(zs)
         z_samps = []
         for z in zs:
@@ -104,8 +102,6 @@ class NVAE(tf.keras.Model):
         d_xg, ld_xg = self.discriminate(xg)
         d_x, ld_x = self.discriminate(x)
         d_xg_samp, ld_xg_samp = self.discriminate(xg_samp)
-
-        print(d_x.shape)
 
         # GAN losses
         disc_real_loss = self.gan_loss(logits=d_x, is_real=True)
