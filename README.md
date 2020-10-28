@@ -1,12 +1,11 @@
 # ANVAE
 Adversarial Nouveau Variational Autoencoder
 
-Unofficial combination of NVAE and AAE:
+A network made using concepts from NVAE and AAE/VAEGAN:
+
 NVAE: https://arxiv.org/abs/2007.03898
+
 AAE: https://arxiv.org/abs/1511.05644
 
-Code references:
-https://github.com/NVlabs/NVAE
-https://github.com/GlassyWing/nvae
-https://github.com/Aiwizo/template-nvae
-https://github.com/conan7882/adversarial-autoencoders
+VAEGAN: https://arxiv.org/pdf/1512.09300
+
