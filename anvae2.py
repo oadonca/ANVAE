@@ -31,9 +31,9 @@ class ANVAE(tf.keras.Model):
         self.lr_dc = .001
         self.lr_gen = .001
         
-        self.ae_optimizer = tf.keras.optimizers.Adam(self.lr_ae, 0.5)
-        self.gen_optimizer = tf.keras.optimizers.Adam(self.lr_gen, 0.5)
-        self.dc_optimizer = tf.keras.optimizers.Adam(self.lr_dc, 0.5)
+        self.ae_optimizer = tf.keras.optimizers.Adam(self.lr_ae)
+        self.gen_optimizer = tf.keras.optimizers.Adam(self.lr_gen)
+        self.dc_optimizer = tf.keras.optimizers.Adam(self.lr_dc)
         
         self.ae_loss_weight = 1
         self.gen_loss_weight = 1
@@ -106,6 +106,9 @@ class ANVAE(tf.keras.Model):
             ae_loss = self.autoencoder_loss(batch_image, decoder_out, self.ae_loss_weight)
             
         ae_grads = ae_tape.gradient(ae_loss, self.encoder.trainable_variables + self.decoder.trainable_variables)
+        
+        ae_grads, _ = [(tf.clip_by_global_norm(grad, clip_norm=2)) for grad in ae_grads]
+        
         self.ae_optimizer.apply_gradients(zip(ae_grads, self.encoder.trainable_variables + self.decoder.trainable_variables))
         
         # Discriminator
@@ -130,6 +133,9 @@ class ANVAE(tf.keras.Model):
                 dc_accuracies.append(tf.keras.metrics.BinaryAccuracy()(tf.concat([tf.ones_like(real), tf.zeros_like(fake)], axis=0), tf.concat([real, fake], axis=0)))
                 
         dc_grads = dc_tape.gradient(dc_losses, self.discriminator.trainable_variables)
+        
+        dc_grads, _ = [(tf.clip_by_global_norm(grad, clip_norm=2)) for grad in dc_grads]
+        
         self.dc_optimizer.apply_gradients(zip(dc_grads, self.discriminator.trainable_variables))
         
         # Generator - Encoder
@@ -142,6 +148,9 @@ class ANVAE(tf.keras.Model):
             gen_loss = self.generator_loss(dc_fake, self.gen_loss_weight)
             
         gen_grads = gen_tape.gradient(gen_loss, self.encoder.trainable_variables)
+        
+        gen_grads, _ = [(tf.clip_by_global_norm(grad, clip_norm=2)) for grad in gen_grads]
+        
         self.gen_optimizer.apply_gradients(zip(gen_grads, self.encoder.trainable_variables))
         
         return ae_loss, dc_losses, dc_accuracies, gen_loss
