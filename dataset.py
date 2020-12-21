@@ -1,3 +1,4 @@
+
 # -*- coding: utf-8 -*-
 """
 Created on Sun Sep 13 19:10:38 2020
@@ -79,12 +80,14 @@ class dataset(object):
         end = self.image_id
         batch_data = self.data[start:end]
         batch_labels = self.labels[start:end]
+        last_batch = False
 
         if self.image_id + self.batch_size > self.size():
             self.epochs_completed += 1
             self.image_id = 0
             self.shuffle_files()
-        return [batch_data, batch_labels]
+            last_batch = True
+        return [batch_data, batch_labels, last_batch]
 
     def setup(self, epoch_val, batch_size, **kwargs):
         self.reset_state()

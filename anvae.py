@@ -7,7 +7,7 @@ Created on Wed Oct  7 13:24:55 2020
 
 import tensorflow as tf
 import tensorflow_probability as tfp
-import numpy
+import numpy 
 import encoder
 import decoder
 
@@ -22,29 +22,36 @@ class ANVAE(tf.keras.Model):
         self.latent_channels = 20
         
         self.encoder = encoder.Encoder(self.latent_spaces, self.input_s)
-        self.decoder = decoder.Decoder(self.encoder(tf.zeros([self.batch_size, 32, 32, 1])), latent_channels=self.latent_channels, level_sizes=self.level_sizes)
+        self.decoder = decoder.Decoder(self.encoder(tf.zeros([self.batch_size, 32, 32, 1]), False), latent_channels=self.latent_channels, level_sizes=self.level_sizes)
         inputs, disc_l, outputs = self.disc_function()
         self.discriminator = tf.keras.Model(inputs=[inputs], outputs=[outputs, disc_l])
         
-        self.lr_ae = .001
+        self.lr_ae = .0001
         self.lr_disc = .0001
-        self.recon_loss_div = .001
+        self.recon_loss_div = 1
         self.latent_loss_div = 1
         self.sig_mult = 10
         
-        self.enc_optimizer = tf.keras.optimizers.Adam(self.lr_ae, 0.5)
-        self.dec_optimizer = tf.keras.optimizers.Adam(self.lr_ae, 0.5)
-        self.disc_optimizer = tf.keras.optimizers.Adam(self.lr_disc, 0.5)
+        self.enc_optimizer = tf.keras.optimizers.Adam(self.lr_ae, 0.5, epsilon=.1, clipvalue=0.5, clipnorm=1)
+        self.dec_optimizer = tf.keras.optimizers.Adam(self.lr_ae, 0.5, clipvalue=0.5, clipnorm=1)
+        self.disc_optimizer = tf.keras.optimizers.Adam(self.lr_disc, 0.5, clipvalue=0.5, clipnorm=1)
+        
+        self.lastEncVars = []
+        self.lastDecVars = []
+        self.lastDiscVars = []
+        
+        self.debugCount = 0
+        
         
     def call(self, image_batch):
-        features = self.encoder(image_batch)
+        features = self.encoder(image_batch, False)
         image, kl_losses = self.decoder(features)
         return features, image, kl_losses
     
-    def encode(self, x):
+    def encode(self, x, debug):
         mus = []
         sigmas = []
-        features = self.encoder(x)
+        features = self.encoder(x, debug)
         
         for z in features:
             flatten = tf.keras.layers.Flatten()(z)
@@ -54,24 +61,24 @@ class ANVAE(tf.keras.Model):
             mus.append(tf.reshape(mu, z.shape))
             sigmas.append(tf.reshape(sigma, z.shape))
         
-        return mus, sigmas
+        return mus, sigmas, features
     
     def decode(self, zs):
         return self.decoder(zs)
     
-    def dist_encode(self, x):
-        mus, sigmas = self.encode(x)
+    def dist_encode(self, x, debug):
+        mus, sigmas, features = self.encode(x, debug)
         dists = []
         for mu, sigma in zip(mus, sigmas):
             dists.append(tfp.distributions.MultivariateNormalDiag(loc = mu, scale_diag = sigma))
             
-        return dists
+        return dists, mus, sigmas, features
     
     def discriminate(self, x):
         return self.discriminator(x)
 
     def reconstruct(self, x):
-        mean, _ = self.encode(x)
+        mean, _, _ = self.encode(x, False)
         return self.decode(mean)
 
     def reparameterize(self, mean, logvar):
@@ -79,55 +86,133 @@ class ANVAE(tf.keras.Model):
         return eps * tf.exp(logvar * 0.5) + mean
 
     # @tf.function
-    def compute_loss(self, x):
+    def compute_loss(self, x, debug):
+        
         # pass through network
-        q_zs = self.dist_encode(x)
+        q_zs, tempMus, tempSigmas, features = self.dist_encode(x, debug)
+        
         zs = []
         for q_z in q_zs:
             zs.append(q_z.sample())
-            
+        
         p_zs = []    
         for z in zs:
             p_zs.append(tfp.distributions.MultivariateNormalDiag(
                 loc=[0.0] * z.shape[-1], scale_diag=[1.0] * z.shape[-1]
-            ))
-            
+            ))   
+        
         xg = self.decode(zs)
+        
         z_samps = []
         for z in zs:
             z_samps.append(tf.random.normal(z.shape))
-            
-        xg_samp = self.decode(z_samps)
         
+        xg_samp = self.decode(z_samps)  
         d_xg, ld_xg = self.discriminate(xg)
-        d_x, ld_x = self.discriminate(x)
+        d_x, ld_x = self.discriminate(x)  
         d_xg_samp, ld_xg_samp = self.discriminate(xg_samp)
+        
 
         # GAN losses
-        disc_real_loss = self.gan_loss(logits=d_x, is_real=True)
-        disc_fake_loss = self.gan_loss(logits=d_xg_samp, is_real=False)
+        disc_real_loss = self.gan_loss(logits=d_x, is_real=True) 
+        disc_fake_loss = self.gan_loss(logits=d_xg_samp, is_real=False)  
         gen_fake_loss = self.gan_loss(logits=d_xg_samp, is_real=True)
-
+        
         discrim_layer_recon_loss = (
             tf.reduce_mean(tf.reduce_mean(tf.math.square(ld_x - ld_xg), axis=0))
             / self.recon_loss_div
         )
-
+        
         self.D_prop = self.sigmoid(
             disc_fake_loss - gen_fake_loss, shift=0.0, mult=self.sig_mult
         )
-
+        
         kl_divs = []
         for q_z, p_z in zip(q_zs, p_zs):
             kl_divs.append(tfp.distributions.kl_divergence(q_z, p_z))
-        
-        latent_losss = []
+  
+        latent_losses = []
         for kl_div in kl_divs:
-            latent_losss.append(tf.reduce_mean(tf.maximum(kl_div, 0)) / self.latent_loss_div)
-
+            latent_losses.append(tf.reduce_mean(tf.maximum(kl_div, 10**-6)) / self.latent_loss_div)
+        
+        
+        
+        if latent_losses[0] == 0.0 and self.debugCount == 0:
+            self.debugCount = 1
+            debug = True
+        
+        if debug:
+            print("Debugging")
+            print("x")
+            print(x)
+            print("x_max")
+            print(x.max())
+            print("TrainableVariables")
+            print("Encoder")
+            print(self.encoder.trainable_variables)
+            print("Decoder")
+            print(self.decoder.trainable_variables)
+            print("Discriminator")
+            print(self.discriminator.trainable_variables)
+            print("PreviousTrainableVariables")
+            print("Encoder")
+            print(self.lastEncVars)
+            print("Decoder")
+            print(self.lastDecVars)
+            print("Discriminator")
+            print(self.lastDiscVars)
+            print("encoderFeatures")
+            print(features)
+            print("tempMus")
+            print(tempMus)
+            print("tempSigmas")
+            print(tempSigmas)
+            print("q_zs")
+            print(q_zs)
+            print("zs")
+            print(zs) 
+            print("p_zs")
+            print(p_zs)
+            print("xg")
+            print(xg)
+            print("z_samps")
+            print(z_samps)
+            print("xg_samp")
+            print(xg_samp)
+            print("d_xg")
+            print(d_xg)
+            print("ld_xg")
+            print(ld_xg)
+            print("d_x")
+            print(d_x)
+            print("ld_x")
+            print(ld_x)
+            print("d_xg_samp")
+            print(d_xg_samp)
+            print("ld_xg_samp")
+            print(ld_xg_samp)
+            print("disc_real_loss")
+            print(disc_real_loss)
+            print("disc_fake_loss")
+            print(disc_fake_loss)
+            print("gen_fake_loss")
+            print(gen_fake_loss)
+            print("discrim_layer_recon_loss")
+            print(discrim_layer_recon_loss)
+            print("D_prop")
+            print(self.D_prop)
+            print("kl_divs")
+            print(kl_divs)
+            print("latent_losses")
+            print(latent_losses)
+        
+        self.lastEncVars = self.encoder.trainable_variables
+        self.lastDecVars = self.decoder.trainable_variables
+        self.lastDiscVars = self.discriminator.trainable_variables
+        
         return (
             self.D_prop,
-            latent_losss,
+            latent_losses,
             discrim_layer_recon_loss,
             gen_fake_loss,
             disc_fake_loss,
@@ -139,14 +224,14 @@ class ANVAE(tf.keras.Model):
         with tf.GradientTape() as enc_tape, tf.GradientTape() as dec_tape, tf.GradientTape() as disc_tape:
             (
                 _,
-                latent_losss,
+                latent_losses,
                 discrim_layer_recon_loss,
                 gen_fake_loss,
                 disc_fake_loss,
                 disc_real_loss,
-            ) = self.compute_loss(x)
+            ) = self.compute_loss(x, False)
 
-            enc_loss = sum(latent_losss) + discrim_layer_recon_loss
+            enc_loss = sum(latent_losses) + discrim_layer_recon_loss
             dec_loss = gen_fake_loss + discrim_layer_recon_loss
             disc_loss = disc_fake_loss + disc_real_loss
 
@@ -173,14 +258,7 @@ class ANVAE(tf.keras.Model):
         self.apply_gradients(enc_gradients, dec_gradients, disc_gradients)
         
     def gan_loss(self, logits, is_real=True):
-        """Computes standard gan loss between logits and labels
-                    
-            Arguments:
-                logits {[type]} -- output of discriminator
-            
-            Keyword Arguments:
-                isreal {bool} -- whether labels should be 0 (fake) or 1 (real) (default: {True})
-            """
+        
         if is_real:
             labels = tf.ones_like(logits)
         else:

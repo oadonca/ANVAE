@@ -20,7 +20,10 @@ def batchNorm(layer_dict, name="batch_norm"):
 class SEKeras(tf.keras.layers.Layer):
     def __init__(self, z_dim, red = 16):
         super(SEKeras, self).__init__()
-        reduced_channels = max(z_dim // red, int(z_dim ** 0.5))
+        if (z_dim == 0):
+            reduced_channels = 1
+        else:
+            reduced_channels = max(z_dim // red, int(z_dim ** 0.5))
         self.fc = tf.keras.Sequential()
         self.fc.add(tf.keras.layers.AveragePooling2D(1))
         self.fc.add(tf.keras.layers.Dense(reduced_channels, use_bias=False))
@@ -52,7 +55,11 @@ def SE(layer_dict, out_dim, ratio = 16, name="SE"):
     with tf.name_scope(name) :
         squeeze = Global_Average_Pooling(layer_dict['cur_input'])
 
-        excitation = Fully_connected(squeeze, units=out_dim / ratio, name=name+'_fully_connected1')
+        dim = out_dim
+        if out_dim / ratio < 1:
+            dim = 1            
+
+        excitation = Fully_connected(squeeze, units=dim / ratio, name=name+'_fully_connected1')
         excitation = Relu(excitation)
         excitation = Fully_connected(excitation, units=out_dim, name=name+'_fully_connected2')
         excitation = Sigmoid(excitation)

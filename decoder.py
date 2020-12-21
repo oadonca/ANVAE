@@ -124,7 +124,6 @@ class Decoder(tf.keras.Model):
         self.upsampled_blocks = []
         for level_index, (level_size, example_feature) in enumerate(zip(level_sizes, reversed(example_features))):
             
-
             inner_blocks = []
 
             for block_index in range(level_size):

@@ -48,16 +48,19 @@ class Encoder(tf.keras.Model):
                 curLevel.add(tf.keras.layers.Conv2D(filters=self.z_dim, kernel_size=1, strides=2, use_bias=False))
                 self.input_s = [self.input_s[0] // 2, self.input_s[1] // 2, self.input_s[2] * 2]
                 
-            
+            curLevel.add(tf.keras.layers.Dense(self.z_dim, kernel_regularizer=tf.keras.regularizers.L2(), activity_regularizer=tf.keras.regularizers.L1()))
             curLevel.add(EncoderCell(tf.TensorShape(self.input_s), self.z_dim))
             
             self.levels.append(curLevel)
             
-    def call(self, head):
+    def call(self, head, debug):
         features = list()
         for level in self.levels:
             head = level(head)
             features.append(head)
+            if debug:
+                print("Head")
+                print(head)
         return features
     
 
