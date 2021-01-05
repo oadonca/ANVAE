@@ -27,17 +27,17 @@ class ANVAE(tf.keras.Model):
         self.decoder = decoder.Decoder(self.encoder(tf.zeros([self.batch_size, 32, 32, 1]), False), latent_channels=self.latent_channels, level_sizes=self.level_sizes)
         self.discriminator = discriminator.Discriminator(self.latent_spaces, self.input_s, self.h_dim)
         
-        self.lr_ae = .001
-        self.lr_dc = .001
-        self.lr_gen = .001
+        self.lr_ae = .0001
+        self.lr_dc = .0001
+        self.lr_gen = .0001
         
-        self.ae_optimizer = tf.keras.optimizers.Adam(self.lr_ae)
-        self.gen_optimizer = tf.keras.optimizers.Adam(self.lr_gen)
-        self.dc_optimizer = tf.keras.optimizers.Adam(self.lr_dc)
+        self.ae_optimizer = tf.keras.optimizers.Adam(self.lr_ae, clipnorm=2)
+        self.gen_optimizer = tf.keras.optimizers.Adam(self.lr_gen, clipnorm=2)
+        self.dc_optimizer = tf.keras.optimizers.Adam(self.lr_dc, clipnorm=2)
         
-        self.ae_loss_weight = 1
-        self.gen_loss_weight = 1
-        self.dc_loss_weight = 1
+        self.ae_loss_weight = 1.
+        self.gen_loss_weight = 6.
+        self.dc_loss_weight = 6.
         
         self.lastEncVars = []
         self.lastDecVars = []
@@ -45,6 +45,9 @@ class ANVAE(tf.keras.Model):
         
         self.debugCount = 0
         self.counter = 1
+        
+        self.log_writer = tf.summary.create_file_writer(logdir='./tf_summary')
+        self.step_count = 0
         
     def encode(self, x, debug=False):
         mus = []
@@ -61,8 +64,7 @@ class ANVAE(tf.keras.Model):
         
         return mus, sigmas, features
     
-    def dist_encode(self, x):
-        mus, sigmas, _ = self.encode(x, False)
+    def dist_encode(self, mus, sigmas):
         
         dists = []
         
@@ -78,49 +80,43 @@ class ANVAE(tf.keras.Model):
         disc_losses = []
         
         for real, fake in zip(real_output, fake_output):
-            real_loss = tf.keras.losses.BinaryCrossentropy()(tf.ones_like(real), real)
-            fake_loss = tf.keras.losses.BinaryCrossentropy()(tf.zeros_like(fake), fake)
-            disc_losses.append(weight*(real_loss+fake_loss))
+            real_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.ones_like(real_output), logits=real_output))
+            fake_loss = tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.zeros_like(fake_output), logits=fake_output))
+            disc_losses.append(weight*(tf.reduce_mean(real_loss)+tf.reduce_mean(fake_loss)))
         
         return disc_losses
     
     def autoencoder_loss(self, inputs, recon, weight = 1.0):
-        return weight * tf.keras.losses.MeanAbsoluteError()(inputs, recon)
+        return weight * tf.reduce_mean(tf.square(inputs-recon))
     
     def generator_loss(self, fake, weight = 1.0):
-        return weight * tf.keras.losses.BinaryCrossentropy()(tf.ones_like(fake), fake)
+        
+        # Should this be tf.zeros_like or tf.ones_like?
+        return weight * tf.reduce_mean(tf.nn.sigmoid_cross_entropy_with_logits(labels=tf.ones_like(fake), logits=fake))
     
-    def train_step(self, batch_image, batch_label):
-        
-        # Autoencoder - Encoder + Decoder
-        
-        with tf.GradientTape() as ae_tape:
-            dist_enc_out = self.dist_encode(batch_image)
+    def train_step(self, batch_image, batch_label, flush = False):
+               
+        with tf.GradientTape() as ae_tape, tf.GradientTape() as dc_tape, tf.GradientTape() as gen_tape:
+            
+            enc_mu, enc_sigma, enc_out = self.encode(batch_image, False)
+            enc_dist = self.dist_encode(enc_mu, enc_sigma)
             
             zs = []
-            for q_z in dist_enc_out:
+            for q_z in enc_dist:
                 zs.append(q_z.sample())
                 
-            decoder_out, _ = self.decoder(zs)
+            dec_out, _ = self.decode(zs)
+        
+            # Autoencoder - Encoder + Decoder
             
-            ae_loss = self.autoencoder_loss(batch_image, decoder_out, self.ae_loss_weight)
-            
-        ae_grads = ae_tape.gradient(ae_loss, self.encoder.trainable_variables + self.decoder.trainable_variables)
+            ae_loss = self.autoencoder_loss(batch_image, dec_out, self.ae_loss_weight)
         
-        ae_grads, _ = [(tf.clip_by_global_norm(grad, clip_norm=2)) for grad in ae_grads]
-        
-        self.ae_optimizer.apply_gradients(zip(ae_grads, self.encoder.trainable_variables + self.decoder.trainable_variables))
-        
-        # Discriminator
-        
-        with tf.GradientTape() as dc_tape:
-            enc_mu, enc_sigma, enc_out = self.encode(batch_image, False)
+            # Discriminator
             
             real_dists = []
             
-            for mu, sigma, feature in zip(enc_mu, enc_sigma, enc_out):
+            for feature in enc_out:
                 real_dists.append(tf.random.normal(shape=feature.shape, mean=0.0, stddev=1.0))
-
             
             dc_real = self.discriminator(real_dists, False)
             dc_fake = self.discriminator(enc_out, False)
@@ -131,28 +127,34 @@ class ANVAE(tf.keras.Model):
             
             for real, fake in zip(dc_real, dc_fake):
                 dc_accuracies.append(tf.keras.metrics.BinaryAccuracy()(tf.concat([tf.ones_like(real), tf.zeros_like(fake)], axis=0), tf.concat([real, fake], axis=0)))
-                
-        dc_grads = dc_tape.gradient(dc_losses, self.discriminator.trainable_variables)
         
-        dc_grads, _ = [(tf.clip_by_global_norm(grad, clip_norm=2)) for grad in dc_grads]
-        
-        self.dc_optimizer.apply_gradients(zip(dc_grads, self.discriminator.trainable_variables))
-        
-        # Generator - Encoder
-        
-        with tf.GradientTape() as gen_tape:
-            enc_mu, enc_sigma, enc_out = self.encode(batch_image, False)
-            
-            dc_fake = self.discriminator(enc_out, False)
+            # Generator - Encoder
             
             gen_loss = self.generator_loss(dc_fake, self.gen_loss_weight)
             
-        gen_grads = gen_tape.gradient(gen_loss, self.encoder.trainable_variables)
+            
+        ae_grads = ae_tape.gradient(ae_loss, self.encoder.trainable_variables + self.decoder.trainable_variables)
         
-        gen_grads, _ = [(tf.clip_by_global_norm(grad, clip_norm=2)) for grad in gen_grads]
+        dc_grads = dc_tape.gradient(dc_losses, self.discriminator.trainable_variables)
+        
+        gen_grads = gen_tape.gradient(gen_loss, self.encoder.trainable_variables)
+
+        self.ae_optimizer.apply_gradients(zip(ae_grads, self.encoder.trainable_variables + self.decoder.trainable_variables))
+                 
+        self.dc_optimizer.apply_gradients(zip(dc_grads, self.discriminator.trainable_variables))
         
         self.gen_optimizer.apply_gradients(zip(gen_grads, self.encoder.trainable_variables))
         
+        with self.log_writer.as_default():
+            tf.summary.scalar(name='Autoencoder_loss', data=ae_loss, step=self.step_count)
+            for i, dc_loss in enumerate(dc_losses):
+                tf.summary.scalar(name='Discriminator_Loss_{}'.format(i), data=dc_loss, step=self.step_count)
+            tf.summary.scalar(name='Generator_Loss', data=gen_loss, step=self.step_count)
+            for i, (r_dist, e_dist) in enumerate(zip(real_dists, zs)):
+                tf.summary.histogram(name='Real_Distribution_{}'.format(i), data=r_dist, step=self.step_count)
+                tf.summary.histogram(name='Encoder_Distribution_{}'.format(i), data=e_dist, step=self.step_count)
+        
+        self.step_count+=1
         return ae_loss, dc_losses, dc_accuracies, gen_loss
 
                 

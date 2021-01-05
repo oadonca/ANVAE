@@ -98,15 +98,15 @@ for epoch in range(N_EPOCHS):
         temp2 = []
         
         temp2.append(enc_loss)
-        for loss in dc_loss:
-            temp2.append(loss)
+        for l in dc_loss:
+            temp2.append(l)
             
         for acc in dc_acc:
             temp2.append(acc)
             
         temp2.append(gen_loss)
                 
-        losses.append(temp2)
+        loss.append(temp2)
 
         if (iteration % 100 == 0):
             for i, (l, label) in enumerate(zip(temp2, losses.columns)):
@@ -122,7 +122,7 @@ for epoch in range(N_EPOCHS):
 
     print('1'*80)
         
-    losses.loc[len(losses)] = np.mean(loss, axis=0)
+    losses.loc[len(losses)] = np.mean(loss)
     
     print("Epoch: {}".format(epoch))
     
