@@ -39,7 +39,7 @@ def plot_losses(losses, epoch=0):
         ax.legend()
     plt.savefig('Output/plots/losses_plot_{}.png'.format(epoch))
     
-def plot_reconstruction(model, data, epoch):
+def plot_reconstruction(model, data, epoch, step):
     _, _, out = model.encode(data, False)
     recon = model.decode(out)
     fig, axs = plt.subplots(ncols=2, nrows=1, figsize=(8,4))
@@ -63,7 +63,7 @@ def plot_reconstruction(model, data, epoch):
             axs[axi].axes.get_yaxis().set_ticks([])
         axs[axi].set_ylabel(lab)
 
-    plt.savefig('Output/images/image_{}.png'.format(epoch))
+    plt.savefig('Output/images/image_{}_{}.png'.format(epoch, step))
     
     
 train_data = dataset(data_path = TRAIN_PATH, batch_size=BATCH_SIZE)
@@ -119,24 +119,25 @@ for epoch in range(N_EPOCHS):
         
         iteration += 1
         print(iteration)
-
-    print('1'*80)
         
-    losses.loc[len(losses)] = np.mean(loss)
-    
-    print("Epoch: {}".format(epoch))
-    
-    display.clear_output()
-    
-    print('2'*80)
-    
-    plot_losses(losses, epoch)
-    
-    print('3'*80)
-    
-    plot_reconstruction(train_model, ex_image, epoch)  
-    
-    print('4'*80)
+        if (train_model.step_count % 200 == 0):
+            print('1'*80)
+        
+            losses.loc[len(losses)] = np.mean(loss)
+            
+            print("Epoch: {}".format(epoch))
+            
+            display.clear_output()
+            
+            print('2'*80)
+            
+            plot_losses(losses, epoch)
+            
+            print('3'*80)
+            
+            plot_reconstruction(train_model, ex_image, epoch, train_model.step_count)  
+            
+            print('4'*80)
     
 
     

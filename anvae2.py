@@ -31,9 +31,9 @@ class ANVAE(tf.keras.Model):
         self.lr_dc = .0001
         self.lr_gen = .0001
         
-        self.ae_optimizer = tf.keras.optimizers.Adam(self.lr_ae, clipnorm=2)
-        self.gen_optimizer = tf.keras.optimizers.Adam(self.lr_gen, clipnorm=2)
-        self.dc_optimizer = tf.keras.optimizers.Adam(self.lr_dc, clipnorm=2)
+        self.ae_optimizer = tf.keras.optimizers.Adamax(self.lr_ae, clipnorm=2)
+        self.gen_optimizer = tf.keras.optimizers.Adamax(self.lr_gen, clipnorm=2)
+        self.dc_optimizer = tf.keras.optimizers.Adamax(self.lr_dc, clipnorm=2)
         
         self.ae_loss_weight = 1.
         self.gen_loss_weight = 6.
@@ -48,6 +48,23 @@ class ANVAE(tf.keras.Model):
         
         self.log_writer = tf.summary.create_file_writer(logdir='./tf_summary')
         self.step_count = 0
+        
+        self.conv_layers = []
+        self.sr_u = {}
+        self.sr_v = {}
+        self.num_power_iter = 4
+        
+        for layer in self.encoder.layers:
+            if isinstance(layer, tf.keras.layers.Conv2D) or isinstance(layer, tf.keras.layers.DepthwiseConv2D):
+                self.conv_layers.append(layer)
+        
+        for layer in self.decoder.layers:
+            if isinstance(layer, tf.keras.layers.Conv2D) or isinstance(layer, tf.keras.layers.DepthwiseConv2D):
+                self.conv_layers.append(layer)
+                
+        for layer in self.discriminator.layers:
+            if isinstance(layer, tf.keras.layers.Conv2D) or isinstance(layer, tf.keras.layers.DepthwiseConv2D):
+                self.conv_layers.append(layer)
         
     def encode(self, x, debug=False):
         mus = []
@@ -64,11 +81,11 @@ class ANVAE(tf.keras.Model):
         
         return mus, sigmas, features
     
-    def dist_encode(self, mus, sigmas):
+    def dist_encode(self, mus, sigmas, res_dist=True):
         
         dists = []
         
-        for mu, sigma in zip(mus, sigmas):
+        for i, (mu, sigma) in enumerate(zip(mus, sigmas)):
             dists.append(tfp.distributions.MultivariateNormalDiag(loc=mu, scale_diag=sigma))
             
         return dists
@@ -132,12 +149,14 @@ class ANVAE(tf.keras.Model):
             
             gen_loss = self.generator_loss(dc_fake, self.gen_loss_weight)
             
+            # Get Spectral norm loss
+            spec_loss = self.spectral_norm()
+                
+            ae_grads = ae_tape.gradient(ae_loss + spec_loss, self.encoder.trainable_variables + self.decoder.trainable_variables)
             
-        ae_grads = ae_tape.gradient(ae_loss, self.encoder.trainable_variables + self.decoder.trainable_variables)
-        
-        dc_grads = dc_tape.gradient(dc_losses, self.discriminator.trainable_variables)
-        
-        gen_grads = gen_tape.gradient(gen_loss, self.encoder.trainable_variables)
+            dc_grads = dc_tape.gradient(tf.reduce_mean(dc_losses) + spec_loss, self.discriminator.trainable_variables)
+            
+            gen_grads = gen_tape.gradient(gen_loss + spec_loss, self.encoder.trainable_variables)
 
         self.ae_optimizer.apply_gradients(zip(ae_grads, self.encoder.trainable_variables + self.decoder.trainable_variables))
                  
@@ -154,10 +173,51 @@ class ANVAE(tf.keras.Model):
                 tf.summary.histogram(name='Real_Distribution_{}'.format(i), data=r_dist, step=self.step_count)
                 tf.summary.histogram(name='Encoder_Distribution_{}'.format(i), data=e_dist, step=self.step_count)
         
+        
+        
         self.step_count+=1
         return ae_loss, dc_losses, dc_accuracies, gen_loss
 
+    def log_weight_norm(self, weight):
+        weight_norm = numpy.reshape(tf.norm(weight, axis = [1, 2, 3]), (-1, 1, 1, 1))
+        log_weight_norm = tf.math.log(weight_norm)
+        
+        n = tf.math.exp(log_weight_norm)
+        wn = tf.math.sqrt(tf.math.reduce_sum(weight*weight, axis=[1, 2, 3]))
+        w = n*weight/(numpy.reshape(wn, (-1, 1, 1, 1)) + 1e-5)
+        
+        return w
+
+    def spectral_norm(self):
+                        
+        weights = {}
+        
+        for l in self.conv_layers:
+            weight = self.log_weight_norm(l.get_weights)
+            weight_mat = numpy.reshape(weight, (weight.size(0), -1))
+            if weight_mat.shape not in weights:
+                weights[weight_mat.shape] = []
                 
+            weights[weight_mat.shape].append(weight_mat)
+            
+        loss = 0
+        for i in weights:
+            weights[i] = tf.stack(weights[i], dim=0)
+            num_iter = self.num_power_iter
+            if i not in self.sr_u:
+                row, col, num_w = weights[i].shape
+                self.sr_u[i] = tf.norm(tf.random.normal([num_w, row]), axis=3)
+                self.sr_v[i] = tf.norm(tf.random.normal([num_w, col]), axis=3)
                 
+                num_iter = 10*self.num_power_iter
+                
+            for j in range(num_iter):
+                self.sr_u[i] = tf.norm(tf.squeeze(tf.matmul(tf.expand_dims(self.sr_u[i], 3), weights[i]), axis=3), axis=3)
+                self.sr_v[i] = tf.norm(tf.squeeze(tf.matmul(weights[i], tf.expand_dims(self.sr_v[i], axis=2)), axis=2), axis=3)
+
+            sigma = tf.matmul(tf.expand_dims(self.sr_u[i], axis=3), tf.matmul(weights[i], tf.expand_dims(self.sr_v[i], axis=2)))
+            loss+= tf.redume_sum(sigma)
+        
+        return loss
     
     

@@ -24,12 +24,15 @@ class SEKeras(tf.keras.layers.Layer):
             reduced_channels = 1
         else:
             reduced_channels = max(z_dim // red, int(z_dim ** 0.5))
-        self.fc = tf.keras.Sequential()
-        self.fc.add(tf.keras.layers.AveragePooling2D(1))
-        self.fc.add(tf.keras.layers.Dense(reduced_channels, use_bias=False))
-        self.fc.add(tf.keras.layers.ReLU())
-        self.fc.add(tf.keras.layers.Dense(z_dim, use_bias=False))
-        self.fc.add(tf.keras.layers.Activation('sigmoid'))     
+        self.fc = tf.keras.Sequential(
+                [
+                    tf.keras.layers.AveragePooling2D(1),
+                    tf.keras.layers.Dense(reduced_channels, use_bias=False),
+                    tf.keras.layers.ReLU(),
+                    tf.keras.layers.Dense(z_dim, use_bias=False),
+                    tf.keras.layers.Activation('sigmoid')
+                ]
+            )
         
     def call(self, x):
         return x * self.fc(x)
